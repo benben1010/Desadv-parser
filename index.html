@@ -1,166 +1,169 @@
 <!DOCTYPE html><html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DESADV Parser</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 2em; }
-        #dropZone {
-            border: 2px dashed #ccc;
-            padding: 2em;
-            text-align: center;
-            margin-bottom: 1em;
-            background: #f9f9f9;
-        }
-        textarea, pre {
-            width: 100%;
-            height: 300px;
-            font-family: monospace;
-        }
-        button {
-            margin-right: 1em;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DESADV Parser</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    #dropZone {
+      border: 2px dashed #ccc;
+      padding: 2em;
+      text-align: center;
+      margin-bottom: 1em;
+      background: #f9f9f9;
+    }
+    textarea, pre {
+      width: 100%;
+      height: 300px;
+      font-family: monospace;
+    }
+    button {
+      margin-right: 1em;
+    }
+  </style>
 </head>
 <body>
-    <h1>DESADV Parser</h1><input type="file" id="fileInput" accept=".txt">
-<div id="dropZone">Or drag and drop a DESADV .txt file here</div>
-<button onclick="parseFile()">Parse File</button>
-<button onclick="downloadJson()">Download JSON</button>
-<button onclick="downloadCsv()">Download CSV</button>
-
-<h2>Parsed JSON Output</h2>
-<pre id="output"></pre>
-
-<script>
+  <h1>DESADV Parser</h1>  <input type="file" id="fileInput" accept=".txt" />
+  <div id="dropZone">Or drag and drop a DESADV .txt file here</div>
+  <button onclick="parseFile()">Parse File</button>
+  <button onclick="downloadJson()">Download JSON</button>
+  <button onclick="downloadCsv()">Download CSV</button>  <h2>Parsed JSON Output</h2>
+  <pre id="output"></pre>  <script>
     let parsedResult = null;
 
     function parseDesadv(text) {
-        const segments = text.trim().split("'");
-        const parsed = {
-            document: {},
-            parties: {},
-            transport: {},
-            packaging: {},
-            line_items: []
-        };
-        let currentItem = null;
+      const segments = text.trim().split("'");
+      const parsed = {
+        document: {},
+        parties: {},
+        transport: {},
+        packaging: {},
+        line_items: []
+      };
 
-        segments.forEach(segment => {
-            const elements = segment.trim().split('+');
-            const tag = elements[0];
+      let currentItem = null;
+      let pendingSerialNumbers = [];
+      let seenLIN = false;
 
-            switch (tag) {
-                case 'BGM':
-                    parsed.document.document_number = elements[2];
-                    break;
-                case 'DTM':
-                    if (elements[1]?.startsWith('137')) {
-                        parsed.document.dispatch_date = elements[1].split(':')[1];
-                    }
-                    break;
-                case 'NAD':
-                    const partyType = elements[1];
-                    const name = elements[2] || '';
-                    const address = elements[3] || '';
-                    if (partyType === 'CZ') parsed.parties.consignor = { name, address };
-                    else if (partyType === 'CN') parsed.parties.consignee = { name, address };
-                    break;
-                case 'TDT':
-                    parsed.transport.carrier = elements[3] || '';
-                    break;
-                case 'EQD':
-                    if (elements[1] === 'TE') parsed.transport.container_number = elements[2];
-                    break;
-                case 'PAC':
-                    parsed.packaging.package_count = elements[1];
-                    break;
-                case 'MEA':
-                    if (elements[2] === 'G') parsed.packaging.gross_weight = elements[5];
-                    else if (elements[2] === 'N') parsed.packaging.net_weight = elements[5];
-                    break;
-                case 'LIN':
-                    if (currentItem) parsed.line_items.push(currentItem);
-                    currentItem = {
-                        line_number: elements[1],
-                        product_code: elements[3]?.split(':')[0],
-                        serial_numbers: []
-                    };
-                    break;
-                case 'PIA':
-                    if (currentItem) currentItem.alternate_product_code = elements[3]?.split(':')[0];
-                    break;
-                case 'QTY':
-                    if (currentItem && elements[1]?.startsWith('12')) {
-                        currentItem.quantity = elements[1].split(':')[1];
-                    }
-                    break;
-                case 'GIR':
-                    if (currentItem) currentItem.serial_numbers.push(elements[2]);
-                    break;
+      segments.forEach(segment => {
+        const elements = segment.trim().split('+');
+        const tag = elements[0];
+
+        switch (tag) {
+          case 'BGM':
+            parsed.document.document_number = elements[2];
+            break;
+          case 'DTM':
+            if (elements[1]?.startsWith('137')) {
+              parsed.document.dispatch_date = elements[1].split(':')[1];
             }
-        });
+            break;
+          case 'NAD': {
+            const partyType = elements[1];
+            const name = elements[2] || '';
+            const address = elements[3] || '';
+            if (partyType === 'CZ') parsed.parties.consignor = { name, address };
+            else if (partyType === 'CN') parsed.parties.consignee = { name, address };
+            break;
+          }
+          case 'TDT':
+            parsed.transport.carrier = elements[3] || '';
+            break;
+          case 'EQD':
+            if (elements[1] === 'TE') parsed.transport.container_number = elements[2];
+            break;
+          case 'PAC':
+            parsed.packaging.package_count = elements[1];
+            break;
+          case 'MEA':
+            if (elements[2] === 'G') parsed.packaging.gross_weight = elements[5];
+            else if (elements[2] === 'N') parsed.packaging.net_weight = elements[5];
+            break;
+          case 'GIR':
+            pendingSerialNumbers.push(elements[2]);
+            break;
+          case 'LIN':
+            seenLIN = true;
+            if (currentItem) parsed.line_items.push(currentItem);
+            currentItem = {
+              line_number: elements[1],
+              product_code: elements[3]?.split(':')[0],
+              serial_numbers: []
+            };
+            break;
+          case 'PIA':
+            if (currentItem) currentItem.alternate_product_code = elements[3]?.split(':')[0];
+            break;
+          case 'QTY':
+            if (currentItem && elements[1]?.startsWith('12')) {
+              currentItem.quantity = elements[1].split(':')[1];
+              if (pendingSerialNumbers.length > 0) {
+                currentItem.serial_numbers = [...pendingSerialNumbers];
+                pendingSerialNumbers = [];
+              }
+            }
+            break;
+        }
+      });
 
-        if (currentItem) parsed.line_items.push(currentItem);
-        return parsed;
+      if (currentItem) parsed.line_items.push(currentItem);
+      return parsed;
     }
 
     function parseFile() {
-        const fileInput = document.getElementById('fileInput');
-        const output = document.getElementById('output');
+      const fileInput = document.getElementById('fileInput');
+      const output = document.getElementById('output');
 
-        if (!fileInput.files[0]) {
-            alert("Please upload a DESADV file.");
-            return;
-        }
+      if (!fileInput.files[0]) {
+        alert("Please upload a DESADV file.");
+        return;
+      }
 
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const text = e.target.result;
-            parsedResult = parseDesadv(text);
-            output.textContent = JSON.stringify(parsedResult, null, 2);
-        };
-        reader.readAsText(fileInput.files[0]);
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const text = e.target.result;
+        parsedResult = parseDesadv(text);
+        output.textContent = JSON.stringify(parsedResult, null, 2);
+      };
+      reader.readAsText(fileInput.files[0]);
     }
 
     function downloadJson() {
-        if (!parsedResult) return;
-        const blob = new Blob([JSON.stringify(parsedResult, null, 2)], { type: 'application/json' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = 'parsed_desadv.json';
-        link.click();
+      if (!parsedResult) return;
+      const blob = new Blob([JSON.stringify(parsedResult, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'parsed_desadv.json';
+      link.click();
     }
 
     function downloadCsv() {
-        if (!parsedResult) return;
-        const items = parsedResult.line_items || [];
-        let csv = 'line_number,product_code,alternate_product_code,quantity,serial_numbers\n';
-        items.forEach(item => {
-            csv += `${item.line_number},${item.product_code},${item.alternate_product_code || ''},${item.quantity || ''},${(item.serial_numbers || []).join(';')}\n`;
-        });
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = 'parsed_desadv.csv';
-        link.click();
+      if (!parsedResult) return;
+      const items = parsedResult.line_items || [];
+      let csv = 'line_number,product_code,alternate_product_code,quantity,serial_numbers\n';
+      items.forEach(item => {
+        csv += `${item.line_number},${item.product_code},${item.alternate_product_code || ''},${item.quantity || ''},${(item.serial_numbers || []).join(';')}\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'parsed_desadv.csv';
+      link.click();
     }
 
     document.getElementById('dropZone').addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.target.style.background = '#e0e0e0';
+      e.preventDefault();
+      e.target.style.background = '#e0e0e0';
     });
     document.getElementById('dropZone').addEventListener('dragleave', (e) => {
-        e.target.style.background = '#f9f9f9';
+      e.target.style.background = '#f9f9f9';
     });
     document.getElementById('dropZone').addEventListener('drop', (e) => {
-        e.preventDefault();
-        e.target.style.background = '#f9f9f9';
-        const file = e.dataTransfer.files[0];
-        document.getElementById('fileInput').files = e.dataTransfer.files;
-        parseFile();
+      e.preventDefault();
+      e.target.style.background = '#f9f9f9';
+      const file = e.dataTransfer.files[0];
+      document.getElementById('fileInput').files = e.dataTransfer.files;
+      parseFile();
     });
-</script>
-
-</body>
+  </script></body>
 </html>
