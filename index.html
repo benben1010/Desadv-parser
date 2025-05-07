@@ -1,34 +1,87 @@
-<!DOCTYPE html><html lang="en">
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DESADV Parser22</title>
+  <title>DESADV Parser</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2em; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2em;
+    }
     #dropZone {
       border: 2px dashed #ccc;
       padding: 2em;
       text-align: center;
       margin-bottom: 1em;
       background: #f9f9f9;
-    }
-    textarea, pre {
-      width: 100%;
-      height: 300px;
-      font-family: monospace;
+      transition: background 0.3s;
     }
     button {
       margin-right: 1em;
     }
+    h2 {
+      margin-top: 2em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1em;
+    }
+    table, th, td {
+      border: 1px solid #ccc;
+    }
+    th, td {
+      padding: 8px;
+      text-align: left;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    ul li {
+      padding: 4px 0;
+    }
   </style>
 </head>
 <body>
-  <h1>DESADV HICHEM Parser22</h1>  <input type="file" id="fileInput" accept=".txt" />
+  <h1>DESADV Parser</h1>
+
+  <input type="file" id="fileInput" accept=".txt" />
   <div id="dropZone">Or drag and drop a DESADV .txt file here</div>
   <button onclick="parseFile()">Parse File</button>
   <button onclick="downloadJson()">Download JSON</button>
-  <button onclick="downloadCsv()">Download CSV</button>  <h2>Parsed JSON Output</h2>
-  <pre id="output"></pre>  <script>
+  <button onclick="downloadCsv()">Download CSV</button>
+
+  <div id="parsedView" style="display:none;">
+    <h2>Document Information</h2>
+    <ul id="docInfo"></ul>
+
+    <h2>Parties</h2>
+    <ul id="parties"></ul>
+
+    <h2>Transport</h2>
+    <ul id="transport"></ul>
+
+    <h2>Packaging</h2>
+    <ul id="packaging"></ul>
+
+    <h2>Line Items</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Line #</th>
+          <th>Product Code</th>
+          <th>Alt. Code</th>
+          <th>Quantity</th>
+          <th>Serial Numbers</th>
+        </tr>
+      </thead>
+      <tbody id="lineItemsTable"></tbody>
+    </table>
+  </div>
+
+  <script>
     let parsedResult = null;
 
     function parseDesadv(text) {
@@ -112,8 +165,6 @@
 
     function parseFile() {
       const fileInput = document.getElementById('fileInput');
-      const output = document.getElementById('output');
-
       if (!fileInput.files[0]) {
         alert("Please upload a DESADV file.");
         return;
@@ -122,10 +173,45 @@
       const reader = new FileReader();
       reader.onload = function (e) {
         const text = e.target.result;
-        parsedResult = parseDesadv(text);
-        output.textContent = JSON.stringify(parsedResult, null, 2);
+        try {
+          parsedResult = parseDesadv(text);
+          document.getElementById('parsedView').style.display = 'block';
+          renderParsedView(parsedResult);
+        } catch (error) {
+          alert("Error parsing file: " + error.message);
+        }
       };
       reader.readAsText(fileInput.files[0]);
+    }
+
+    function renderParsedView(data) {
+      const setList = (el, obj) => {
+        el.innerHTML = '';
+        for (const key in obj) {
+          el.innerHTML += `<li><strong>${key.replace(/_/g, ' ')}:</strong> ${obj[key]}</li>`;
+        }
+      };
+
+      setList(document.getElementById('docInfo'), data.document);
+      setList(document.getElementById('parties'), {
+        'Consignor': `${data.parties.consignor?.name || ''}, ${data.parties.consignor?.address || ''}`,
+        'Consignee': `${data.parties.consignee?.name || ''}, ${data.parties.consignee?.address || ''}`
+      });
+      setList(document.getElementById('transport'), data.transport);
+      setList(document.getElementById('packaging'), data.packaging);
+
+      const tbody = document.getElementById('lineItemsTable');
+      tbody.innerHTML = '';
+      data.line_items.forEach(item => {
+        const row = `<tr>
+          <td>${item.line_number}</td>
+          <td>${item.product_code}</td>
+          <td>${item.alternate_product_code || ''}</td>
+          <td>${item.quantity || ''}</td>
+          <td>${(item.serial_numbers || []).join('<br>')}</td>
+        </tr>`;
+        tbody.innerHTML += row;
+      });
     }
 
     function downloadJson() {
@@ -140,9 +226,16 @@
     function downloadCsv() {
       if (!parsedResult) return;
       const items = parsedResult.line_items || [];
+      const escapeCsv = val => `"${(val || '').toString().replace(/"/g, '""')}"`;
       let csv = 'line_number,product_code,alternate_product_code,quantity,serial_numbers\n';
       items.forEach(item => {
-        csv += `${item.line_number},${item.product_code},${item.alternate_product_code || ''},${item.quantity || ''},${(item.serial_numbers || []).join(';')}\n`;
+        csv += [
+          escapeCsv(item.line_number),
+          escapeCsv(item.product_code),
+          escapeCsv(item.alternate_product_code),
+          escapeCsv(item.quantity),
+          escapeCsv((item.serial_numbers || []).join(';'))
+        ].join(',') + '\n';
       });
       const blob = new Blob([csv], { type: 'text/csv' });
       const link = document.createElement('a');
@@ -165,5 +258,6 @@
       document.getElementById('fileInput').files = e.dataTransfer.files;
       parseFile();
     });
-  </script></body>
+  </script>
+</body>
 </html>
